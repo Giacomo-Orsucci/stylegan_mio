@@ -1,0 +1,129 @@
+# Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+#
+# This work is licensed under the Creative Commons Attribution-NonCommercial
+# 4.0 International License. To view a copy of this license, visit
+# http://creativecommons.org/licenses/by-nc/4.0/ or send a letter to
+# Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+
+"""Minimal script for generating an image using pre-trained StyleGAN generator."""
+
+import os
+import pickle
+import numpy as np
+import PIL.Image
+import dnnlib
+import dnnlib.tflib as tflib
+import config
+import tensorflow as tf
+import torch
+import argparse
+import torchvision
+from torchvision.utils import save_image
+
+from models import StegaStampDecoder
+
+def main():
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--decoder_path",
+        type=str,
+        help="Provide trained StegaStamp decoder to verify fingerprint detection accuracy.",
+    )
+
+    parser.add_argument(
+        "--image_resolution", type=int, help="Height and width of square images."
+    )
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(torch.__version__)
+    print(torch.version.cuda)
+
+    args = parser.parse_args()
+    
+    fingerprint = torch.tensor([0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,1,1,1,0,1,0,1,1,1,1,1,1,1,1,0,0,1,1,1,
+                            0,1,0,0,0,0,0,1,1,1,1,1,0,1,1,0,1,0,1,0,1,1,0,0,0,0,0,0,0,0,1,1,0,1,1,1,1,
+                            0,1,0,1,1,1,0,1,0,1,0,1,0,0,1,0,1,1,1,1,1,1,1,1,1,1,1,0])#trovata a mano sulla base dell'enc pretrained
+
+
+    print("fingerprint va")
+                            
+
+    # Initialize TensorFlow.
+    tflib.init_tf()
+   
+    file_path = '/media/giacomo/hdd_ubuntu/Downloads/stylegan_pretrained_celeba.pkl'
+    
+    # Load the pickle file
+    with open(file_path, 'rb') as f:
+        data = pickle.load(f)
+        _G, _D, Gs = data[:3]  # Adjust if more objects are present
+    # Print network details.
+    Gs.print_layers()
+    
+
+    IMAGE_RESOLUTION = args.image_resolution
+    IMAGE_CHANNELS = 3
+
+    print("yes")
+    FINGERPRINT_SIZE = len(fingerprint)
+    print(IMAGE_RESOLUTION)
+    print(FINGERPRINT_SIZE)
+
+    print("Il problema è il caricamento del decoder")
+    RevealNet = StegaStampDecoder( #decoder e passaggio dei parametri
+        IMAGE_RESOLUTION, IMAGE_CHANNELS, fingerprint_size=FINGERPRINT_SIZE
+    )
+
+
+    print("Il problema è la scelta del device")
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print("Using device:", device)
+    device = "cpu"
+    print("Using device:", device)
+    state_dict = torch.load(args.decoder_path, map_location=device)
+    RevealNet.load_state_dict(state_dict)
+    
+    bitwise_accuracy = 0
+
+    NUM_CYCLES = 1 #618 per avere 50058 immagini
+    
+    
+    print("no problem")
+    for i in range(NUM_CYCLES):
+        
+
+        seed = 5
+        rows = 3
+        lods=[0,1,2,2,3,3]
+        synthesis_kwargs = dict(output_transform=dict(func=tflib.convert_images_to_uint8, nchw_to_nhwc=True), minibatch_size=8)
+        latents = np.random.RandomState(seed).randn(sum(rows * 2**lod for lod in lods), Gs.input_shape[1])
+        images = Gs.run(latents, None, **synthesis_kwargs) # [seed, y, x, rgb]
+        print("no problem1")
+        
+        print(len(images))
+        for j in range(len(images)):
+            print("no problem2")
+            image_tensor = torch.from_numpy(images[j]).permute(2, 0, 1).float().to(device)
+            detected_fingerprints = RevealNet(image_tensor.unsqueeze(0)) 
+
+            #"True" se l'elemento è maggiore di 0, "False" altrimenti 
+            detected_fingerprints = (detected_fingerprints > 0).long()
+            print(detected_fingerprints)
+            fingerprint = (fingerprint > 0).long()
+            os.makedirs(config.result_dir, exist_ok=True)
+            png_filename = os.path.join(config.result_dir, f"image{i*len(images)+(j+1)}.png")
+            PIL.Image.fromarray(images[j], 'RGB').save(png_filename)
+            bitwise_accuracy += (detected_fingerprints == fingerprint).float().mean(dim=1).sum().item()
+
+    print(NUM_CYCLES*81) #81  è il numero di immagini che la rete genera ad ogni ciclo
+    bitwise_accuracy = bitwise_accuracy / (NUM_CYCLES*81) #calcola l'accuratezza generale
+
+    print(f"Bitwise accuracy on fingerprinted images: {bitwise_accuracy}")
+    
+    print("finito con successo")
+       
+
+if __name__ == "__main__":
+    main()
