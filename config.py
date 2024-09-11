@@ -10,7 +10,7 @@
 #----------------------------------------------------------------------------
 # Paths.
 
-result_dir = '/home/giacomo/Desktop/results'
+result_dir = '/media/giacomo/hdd_ubuntu/stylegan_gen_50k'
 data_dir = 'datasets'
 cache_dir = 'cache'
 run_dir_ignore = ['results', 'datasets', 'cache']

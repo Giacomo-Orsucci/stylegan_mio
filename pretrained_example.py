@@ -89,7 +89,7 @@ def main():
     
     bitwise_accuracy = 0
 
-    NUM_CYCLES = 1 #618 to have 50058 images
+    NUM_CYCLES = 618 #618 to have 50058 images
     
     
     print("no problem")
